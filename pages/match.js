@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
-import { calcScore, RATING_SCALE, getFunComment } from '../lib/score';
+import { calcScore, getFunComment } from '../lib/score';
 import { initials, avatarCls, posCls, fmtDate } from '../lib/helpers';
 import { toast } from '../components/Toast';
 
@@ -96,16 +96,21 @@ export default function MatchPage() {
     const form = {};
     (m.match_players || []).forEach(mp => {
       const existing = (m.match_stats || []).find(s => s.player_id === mp.player_id);
+      const pos = mp.players?.pos || 'MIL';
+      const team = mp.team;
+      // Auto clean sheet: DEF whose team conceded 0 goals
+      const teamConceded = team === 'A' ? (m.score_b || 0) : (m.score_a || 0);
+      const autoCleanSheet = pos === 'DEF' && teamConceded === 0 ? 1 : 0;
       form[mp.player_id] = {
         buts:        existing?.buts        ?? 0,
         pass_d:      existing?.pass_d      ?? 0,
-        clean_sheet: existing?.clean_sheet ?? 0,
+        clean_sheet: existing?.clean_sheet ?? autoCleanSheet,
         note:        existing?.note        ?? 5,
         victoire:    existing?.victoire    ?? (m.score_a > m.score_b ? mp.team === 'A' : m.score_b > m.score_a ? mp.team === 'B' : false),
         nul:         existing?.nul         ?? (m.score_a === m.score_b),
-        pos:  mp.players?.pos  || 'MIL',
+        pos,
         name: mp.players?.name || '?',
-        team: mp.team,
+        team,
       };
     });
     setStatsMvp(m.mvp_id || '');
@@ -289,11 +294,11 @@ export default function MatchPage() {
           <div className="row2">
             <div className="field">
               <label>Score Éq. A</label>
-              <input type="number" min={0} value={scoreA} onChange={e => setScoreA(e.target.value)} />
+              <input type="number" inputMode="numeric" pattern="[0-9]*" min={0} value={scoreA} onChange={e => setScoreA(e.target.value)} />
             </div>
             <div className="field">
               <label>Score Éq. B</label>
-              <input type="number" min={0} value={scoreB} onChange={e => setScoreB(e.target.value)} />
+              <input type="number" inputMode="numeric" pattern="[0-9]*" min={0} value={scoreB} onChange={e => setScoreB(e.target.value)} />
             </div>
           </div>
 
@@ -420,12 +425,12 @@ export default function MatchPage() {
                   <div className="row2">
                     <div className="field">
                       <label>Équipe A</label>
-                      <input type="number" min={0} value={statsMatch.score_a}
+                      <input type="number" inputMode="numeric" pattern="[0-9]*" min={0} value={statsMatch.score_a}
                         onChange={e => setStatsMatch(prev => ({ ...prev, score_a: parseInt(e.target.value) || 0 }))} />
                     </div>
                     <div className="field">
                       <label>Équipe B</label>
-                      <input type="number" min={0} value={statsMatch.score_b}
+                      <input type="number" inputMode="numeric" pattern="[0-9]*" min={0} value={statsMatch.score_b}
                         onChange={e => setStatsMatch(prev => ({ ...prev, score_b: parseInt(e.target.value) || 0 }))} />
                     </div>
                   </div>
@@ -493,7 +498,6 @@ export default function MatchPage() {
 /* ── StatRow ── */
 function StatRow({ pid, pos, name, team, s, mvp, onStat, onResult, onMvp, disabled }) {
   const isDef   = pos === 'DEF';
-  const scale   = RATING_SCALE[pos] || [];
   const note    = parseFloat(s.note ?? 5);
   const result  = s.victoire ? 'win' : s.nul ? 'nul' : 'loss';
   const comment = getFunComment(pos, calcScore(pos, s), s);
@@ -521,13 +525,6 @@ function StatRow({ pid, pos, name, team, s, mvp, onStat, onResult, onMvp, disabl
           <div className="stat-live-score">{liveScore}</div>
           <div style={{ fontSize: '0.6rem', color: 'var(--muted)' }}>pts</div>
         </div>
-      </div>
-
-      {/* Criteria */}
-      <div className="criteria-row">
-        {scale.map(c => (
-          <span key={c.label} className="criterion-tag">{c.icon} {c.label}</span>
-        ))}
       </div>
 
       {/* Stats */}
@@ -568,38 +565,6 @@ function StatRow({ pid, pos, name, team, s, mvp, onStat, onResult, onMvp, disabl
             </div>
           </div>
         )}
-
-        {/* Rating scale guide – shown just before the note slider */}
-        <div style={{
-          gridColumn: '1 / -1',
-          background: 'var(--bg3)',
-          borderRadius: 8,
-          padding: '8px 10px',
-          marginBottom: 2,
-        }}>
-          <div style={{ fontSize: '0.66rem', color: 'var(--muted)', fontWeight: 700, marginBottom: 5, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-            Barème — aide à la note
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 10px' }}>
-            {RATING_SCALE[pos]?.map(c => (
-              <div key={c.label} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.68rem', color: 'var(--muted2)' }}>
-                <span>{c.icon}</span>
-                <span>{c.label}</span>
-                <span style={{
-                  fontWeight: 700,
-                  color: 'var(--neon)',
-                  background: 'var(--neon-dim)',
-                  borderRadius: 4,
-                  padding: '1px 5px',
-                  fontSize: '0.66rem',
-                }}>+{c.pts} pts</span>
-              </div>
-            ))}
-          </div>
-          <div style={{ fontSize: '0.62rem', color: 'var(--muted)', marginTop: 5, fontStyle: 'italic' }}>
-            Note /10 = somme de tes critères. Exemple : 3 critères à 2 = note 6.
-          </div>
-        </div>
 
         {/* Note slider */}
         <div className="note-slider-wrap">

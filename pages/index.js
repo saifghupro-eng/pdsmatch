@@ -38,6 +38,7 @@ export default function Home() {
     { href: '/match',       icon: '⚽', label: 'Nouveau match',   sub: 'Stats & résultats',    color: 'var(--blue)' },
     { href: '/classement',  icon: '🏆', label: 'Classement',      sub: 'Top joueurs',           color: 'var(--blue)' },
     { href: '/equipes',     icon: '👥', label: 'Équipes',          sub: 'Tirage équilibré',      color: 'var(--blue)' },
+    { href: '/admin',       icon: '⚙️', label: 'Admin',            sub: 'Gestion & joueurs',     color: 'var(--blue)' },
   ];
 
   return (
