@@ -428,8 +428,8 @@ export default function Classement() {
     })
     .sort((a, b) =>
       scoreMode === 'total'
-        ? b.displayAvg   - a.displayAvg
-        : b.displayTotal - a.displayTotal
+        ? b.displayTotal - a.displayTotal
+        : b.displayAvg   - a.displayAvg
     );
 
   return (
