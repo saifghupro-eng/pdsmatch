@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { playerSeasonStats, getSeasonBadge, getFunComment, calcScore } from '../lib/score';
-import { initials, avatarCls, posCls, rankCls } from '../lib/helpers';
+import { initials, avatarCls, posCls, rankCls, fmtDate } from '../lib/helpers';
 import { useAuth } from '../lib/auth';
 import { toast } from '../components/Toast';
 
@@ -258,6 +258,125 @@ function RankingDef({ players, allStats }) {
   );
 }
 
+/* ─── Classement par ratio victoires / matchs joués ─── */
+function RankingWinRatio({ players, allStats }) {
+  const ranked = players
+    .map(p => ({ ...p, ss: playerSeasonStats(allStats, p.id, p.pos) }))
+    .filter(p => p.ss.matchCount >= 5)
+    .map(p => ({ ...p, ratio: p.ss.wins / p.ss.matchCount }))
+    .sort((a, b) => b.ratio - a.ratio || b.ss.matchCount - a.ss.matchCount);
+  if (!ranked.length) return <div className="empty"><div className="empty-icon">🏆</div><p>Aucun joueur avec 5 matchs ou plus</p></div>;
+  return (
+    <div className="card">
+      {ranked.map((p, i) => (
+        <div key={p.id} className="lb-row">
+          <div className={`lb-rank ${rankCls(i)}`}>{i===0?'👑':i===1?'🥈':i===2?'🥉':i+1}</div>
+          <div className={`avatar ${avatarCls(p.pos)}`} style={{ width:42, height:42, fontSize:'0.88rem' }}>{initials(p.name)}</div>
+          <div className="lb-info">
+            <div className="lb-name">{p.name}<span className={`pos-tag ${posCls(p.pos)}`}>{p.pos}</span></div>
+            <div className="lb-details" style={{ marginTop:5 }}>
+              <span className="pill">🎮 {p.ss.matchCount}m</span>
+              <span className="pill">🏆 {p.ss.wins}V</span>
+              {p.ss.nuls > 0 && <span className="pill">🤝 {p.ss.nuls}N</span>}
+            </div>
+          </div>
+          <div className="avg-indicator">
+            <div className="avg-val" style={{ color:'var(--neon)', fontSize:'1.5rem' }}>{Math.round(p.ratio * 100)}%</div>
+            <div className="avg-label">victoires</div>
+            <div className="avg-matches">{p.ss.wins}/{p.ss.matchCount}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ─── Classement par date (agrège tous les matchs joués ce jour-là) ─── */
+function RankingBySession({ sessionStats }) {
+  const [selectedDate, setSelectedDate] = useState('');
+
+  const dates = [...new Set(sessionStats.map(s => s.matches?.date).filter(Boolean))]
+    .sort((a, b) => b.localeCompare(a));
+
+  useEffect(() => {
+    if (dates.length && !selectedDate) setSelectedDate(dates[0]);
+  }, [dates]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!dates.length) return <div className="empty"><div className="empty-icon">📅</div><p>Aucune stat enregistrée</p></div>;
+
+  const statsForDate = sessionStats.filter(s => s.matches?.date === selectedDate);
+
+  // Agrégation par joueur sur tous les matchs de la date choisie
+  const byPlayer = {};
+  statsForDate.forEach(s => {
+    const pid = s.player_id;
+    if (!byPlayer[pid]) {
+      byPlayer[pid] = {
+        pid, name: s.players?.name || '?', pos: s.players?.pos || 'MIL',
+        buts: 0, passD: 0, cleanSheet: 0, wins: 0, nuls: 0, matches: 0, score: 0,
+      };
+    }
+    const p = byPlayer[pid];
+    p.buts        += s.buts || 0;
+    p.passD       += s.pass_d || 0;
+    p.cleanSheet  += s.clean_sheet || 0;
+    p.wins        += s.victoire ? 1 : 0;
+    p.nuls        += s.nul ? 1 : 0;
+    p.matches     += 1;
+    p.score       += calcScore(p.pos, s);
+  });
+  const ranked = Object.values(byPlayer).sort((a, b) => b.score - a.score);
+
+  return (
+    <>
+      <div className="card" style={{ padding: '10px 14px' }}>
+        <label style={{ fontSize: '0.72rem', color: 'var(--muted)', fontWeight: 700 }}>Choisir une date</label>
+        <select value={selectedDate} onChange={e => setSelectedDate(e.target.value)} style={{ marginTop: 6 }}>
+          {dates.map(d => (
+            <option key={d} value={d}>
+              {fmtDate(d)} — {sessionStats.filter(s => s.matches?.date === d && s.match_id).reduce((set, s) => set.add(s.match_id), new Set()).size} match(s)
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {!ranked.length ? (
+        <div className="empty"><div className="empty-icon">📅</div><p>Aucune stat pour cette date</p></div>
+      ) : (
+        <div className="card">
+          {ranked.map((p, i) => (
+            <div key={p.pid} className="lb-row">
+              <div className={`lb-rank ${rankCls(i)}`}>{i===0?'👑':i===1?'🥈':i===2?'🥉':i+1}</div>
+              <div className={`avatar ${avatarCls(p.pos)}`} style={{ width:42, height:42, fontSize:'0.88rem' }}>
+                {initials(p.name)}
+              </div>
+              <div className="lb-info">
+                <div className="lb-name">
+                  {p.name}
+                  <span className={`pos-tag ${posCls(p.pos)}`}>{p.pos}</span>
+                </div>
+                <div className="lb-details" style={{ marginTop: 5 }}>
+                  <span className="pill">🎮 {p.matches}m</span>
+                  <span className="pill">🏆 {p.wins}V</span>
+                  {p.nuls > 0 && <span className="pill">🤝 {p.nuls}N</span>}
+                  {p.buts > 0 && <span className="pill">⚽ {p.buts}</span>}
+                  {p.passD > 0 && <span className="pill">🎯 {p.passD}</span>}
+                  {p.cleanSheet > 0 && <span className="pill">🧤 {p.cleanSheet}CS</span>}
+                </div>
+              </div>
+              <div className="avg-indicator">
+                <div className="avg-val" style={{ color: 'var(--neon)', fontSize: '1.5rem' }}>{Math.round(p.score * 10) / 10}</div>
+                <div className="avg-label">pts</div>
+                <div className="avg-matches">{Math.round((p.score / p.matches) * 10) / 10} moy.</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
 /* ══════════════ PAGE PRINCIPALE ══════════════ */
 export default function Classement() {
   const { isAdmin }                 = useAuth();
@@ -265,6 +384,7 @@ export default function Classement() {
   const [scoreMode, setScoreMode]   = useState('avg');
   const [players, setPlayers]       = useState([]);
   const [allStats, setAllStats]     = useState([]);
+  const [sessionStats, setSessionStats] = useState([]);
   const [loading, setLoading]       = useState(true);
   const [expanded, setExpanded]     = useState({});   // { [pid]: bool }
   const [bonusModal, setBonusModal] = useState(null); // player | null
@@ -274,10 +394,11 @@ export default function Classement() {
   async function load() {
     const [{ data: pls }, { data: stats }] = await Promise.all([
       supabase.from('players').select('*'),
-      supabase.from('match_stats').select('*, players(pos)'),
+      supabase.from('match_stats').select('*, players(name,pos), matches(date)'),
     ]);
     setPlayers(pls || []);
     setAllStats(stats || []);
+    setSessionStats(stats || []);
     setLoading(false);
   }
 
@@ -289,7 +410,7 @@ export default function Classement() {
     setPlayers(prev => prev.map(p => p.id === pid ? { ...p, ...update } : p));
   }
 
-  const isSpecial = ['buts', 'passd', 'def'].includes(tab);
+  const isSpecial = ['buts', 'passd', 'def', 'winratio', 'session'].includes(tab);
 
   const posFilterMap = { global: null, att: 'ATQ', mid: 'MIL' };
   let filtered = [...players];
@@ -306,7 +427,7 @@ export default function Classement() {
       };
     })
     .sort((a, b) =>
-      scoreMode === 'avg'
+      scoreMode === 'total'
         ? b.displayAvg   - a.displayAvg
         : b.displayTotal - a.displayTotal
     );
@@ -323,7 +444,7 @@ export default function Classement() {
 
       {/* Tabs ligne 2 — classements spéciaux */}
       <div className="tab-row" style={{ marginTop:4 }}>
-        {[['buts','⚽ Buteurs'],['passd','🎯 Passeurs'],['def','🛡️ Défenseurs']].map(([k,l]) => (
+        {[['buts','⚽ Buteurs'],['passd','🎯 Passeurs'],['def','🛡️ Défenseurs'],['winratio','📊 Ratio V'],['session','📅 Par date']].map(([k,l]) => (
           <button key={k} className={`tab${tab===k?' active':''}`} onClick={() => setTab(k)}>{l}</button>
         ))}
       </div>
@@ -359,6 +480,26 @@ export default function Classement() {
             </div>
           </div>
           <RankingDef players={players} allStats={allStats} />
+        </>
+
+      ) : tab === 'winratio' ? (
+        <>
+          <div className="card" style={{ padding:'10px 14px' }}>
+            <div style={{ fontSize:'0.72rem', color:'var(--muted2)', display:'flex', alignItems:'center', gap:6 }}>
+              <span>📊</span><span>Classement par <strong style={{ color:'var(--neon)' }}>ratio victoires / matchs joués</strong> — à partir de 5 matchs joués, tous postes confondus.</span>
+            </div>
+          </div>
+          <RankingWinRatio players={players} allStats={allStats} />
+        </>
+
+      ) : tab === 'session' ? (
+        <>
+          <div className="card" style={{ padding:'10px 14px' }}>
+            <div style={{ fontSize:'0.72rem', color:'var(--muted2)', display:'flex', alignItems:'center', gap:6 }}>
+              <span>📅</span><span>Classement <strong style={{ color:'var(--neon)' }}>d'un match précis</strong> — choisis une date.</span>
+            </div>
+          </div>
+          <RankingBySession sessionStats={sessionStats} />
         </>
 
       ) : (

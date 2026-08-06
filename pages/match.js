@@ -218,7 +218,7 @@ export default function MatchPage() {
       if (allStats?.length) {
         const scores  = allStats.map(st => calcScore(st.players?.pos || 'MIL', st));
         const avg     = scores.reduce((a, b) => a + b, 0) / scores.length;
-        const newLevel = Math.min(10, Math.max(1, Math.round(avg / 3)));
+        const newLevel = Math.min(10, Math.max(1, Math.round(avg / 1.6)));
         await supabase.from('players').update({ level: newLevel }).eq('id', pid);
       }
     }
