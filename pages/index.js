@@ -38,6 +38,7 @@ export default function Home() {
     { href: '/match',       icon: '⚽', label: 'Nouveau match',   sub: 'Stats & résultats',    color: 'var(--blue)' },
     { href: '/classement',  icon: '🏆', label: 'Classement',      sub: 'Top joueurs',           color: 'var(--blue)' },
     { href: '/equipes',     icon: '👥', label: 'Équipes',          sub: 'Tirage équilibré',      color: 'var(--blue)' },
+    { href: '/comparateur', icon: '⚔️', label: 'Comparateur',      sub: 'Face à face',           color: 'var(--blue)' },
     { href: '/admin',       icon: '⚙️', label: 'Admin',            sub: 'Gestion & joueurs',     color: 'var(--blue)' },
   ];
 
@@ -94,7 +95,7 @@ export default function Home() {
             ) : sortedPlayers.slice(0, 5).map((p, i) => {
               const badge = getSeasonBadge(p.ss.avgScore, p.ss.matchCount);
               return (
-                <div key={p.id} className="lb-row">
+                <Link key={p.id} href={`/joueur/${p.id}`} className="lb-row" style={{ textDecoration: 'none', color: 'inherit' }}>
                   <div className={`lb-rank ${rankCls(i)}`}>
                     {i === 0 ? '👑' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
                   </div>
@@ -122,7 +123,7 @@ export default function Home() {
                     <div className="avg-val">{p.ss.avgScore}</div>
                     <div className="avg-label">moy/m</div>
                   </div>
-                </div>
+                </Link>
               );
             })}
             {sortedPlayers.length > 5 && (

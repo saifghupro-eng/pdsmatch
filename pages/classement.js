@@ -1,7 +1,8 @@
 // pages/classement.js
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { supabase } from '../lib/supabase';
-import { playerSeasonStats, getSeasonBadge, getFunComment, calcScore } from '../lib/score';
+import { playerSeasonStats, getSeasonBadge, getFunComment, calcScore, getBestDuos, getDuoVibe, pickTeamOfPeriod } from '../lib/score';
 import { initials, avatarCls, posCls, rankCls, fmtDate } from '../lib/helpers';
 import { useAuth } from '../lib/auth';
 import { toast } from '../components/Toast';
@@ -377,6 +378,340 @@ function RankingBySession({ sessionStats }) {
   );
 }
 
+/* ─── Meilleurs / pires duos — paires qui gagnent (ou perdent) le plus souvent ensemble ─── */
+function RankingDuos({ matches }) {
+  const [minTogether, setMinTogether] = useState(2);
+
+  const allDuos = getBestDuos(matches, Math.max(1, parseInt(minTogether) || 1));
+  const bestDuos  = allDuos;
+  const worstDuos = [...allDuos].sort((a, b) => a.winRate - b.winRate || b.together - a.together);
+
+  function DuoRow({ d, i }) {
+    const vibe = getDuoVibe(d.winRate);
+    return (
+      <div key={d.ids.join('-')} className="lb-row">
+        <div className={`lb-rank ${rankCls(i)}`}>{i===0?'👑':i===1?'🥈':i===2?'🥉':i+1}</div>
+        <div style={{ display: 'flex', flexShrink: 0 }}>
+          <div className={`avatar ${avatarCls(d.poss[0])}`} style={{ width: 34, height: 34, fontSize: '0.72rem', border: '2px solid var(--bg2)' }}>
+            {initials(d.names[0])}
+          </div>
+          <div className={`avatar ${avatarCls(d.poss[1])}`} style={{ width: 34, height: 34, fontSize: '0.72rem', marginLeft: -12, border: '2px solid var(--bg2)' }}>
+            {initials(d.names[1])}
+          </div>
+        </div>
+        <div className="lb-info">
+          <div className="lb-name">{d.names[0]} <span style={{ color: 'var(--muted)', fontWeight: 400 }}>&</span> {d.names[1]}</div>
+          <div className="lb-details" style={{ marginTop: 5 }}>
+            <span className="pill">🎮 {d.together} ensemble</span>
+            <span className="pill">🏆 {d.wins}V</span>
+            {d.nuls > 0 && <span className="pill">🤝 {d.nuls}N</span>}
+          </div>
+          <div style={{
+            marginTop: 5, fontSize: '0.68rem', color: 'var(--muted2)',
+            display: 'flex', alignItems: 'center', gap: 4,
+            background: 'var(--bg3)', borderRadius: 6, padding: '3px 7px', width: 'fit-content',
+          }}>
+            <span style={{ fontSize: '0.85rem' }}>{vibe.emoji}</span>
+            <span style={{ fontStyle: 'italic' }}>{vibe.label}</span>
+          </div>
+        </div>
+        <div className="avg-indicator">
+          <div className="avg-val" style={{ color: d.winRate >= 50 ? 'var(--neon)' : '#ff5555', fontSize: '1.5rem' }}>{d.winRate}%</div>
+          <div className="avg-label">pts (V3/N1)</div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="card" style={{ padding: '10px 14px' }}>
+        <label style={{ fontSize: '0.72rem', color: 'var(--muted)', fontWeight: 700 }}>
+          Matchs minimum joués ensemble
+        </label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
+          <button className="counter-btn" onClick={() => setMinTogether(v => Math.max(1, (parseInt(v) || 1) - 1))}>−</button>
+          <input
+            type="number" min={1} value={minTogether}
+            onChange={e => setMinTogether(e.target.value)}
+            style={{
+              width: 60, textAlign: 'center', fontWeight: 800, fontSize: '1rem',
+              background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 8,
+              padding: '6px 0', color: 'var(--fg)',
+            }}
+          />
+          <button className="counter-btn" onClick={() => setMinTogether(v => (parseInt(v) || 1) + 1)}>+</button>
+          <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>
+            {allDuos.length} duo{allDuos.length > 1 ? 's' : ''} trouvé{allDuos.length > 1 ? 's' : ''}
+          </span>
+        </div>
+      </div>
+
+      {!allDuos.length ? (
+        <div className="empty">
+          <div className="empty-icon">🤝</div>
+          <p>Aucun duo n'a joué {minTogether} match{minTogether > 1 ? 's' : ''} ensemble ou plus.</p>
+        </div>
+      ) : (
+        <>
+          <div className="section-label" style={{ color: 'var(--neon)' }}>👑 Meilleurs duos</div>
+          <div className="card">
+            {bestDuos.slice(0, 10).map((d, i) => <DuoRow key={d.ids.join('-')} d={d} i={i} />)}
+          </div>
+
+          <div className="section-label" style={{ color: '#ff5555' }}>📉 Pires duos</div>
+          <div className="card">
+            {worstDuos.slice(0, 10).map((d, i) => <DuoRow key={d.ids.join('-')} d={d} i={i} />)}
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
+/* ─── Couleur par poste (réutilisée par le terrain) ─── */
+function posColor(pos) {
+  return pos === 'ATQ' ? 'var(--att)' : pos === 'DEF' ? 'var(--def)' : 'var(--mid)';
+}
+
+/* ─── Terrain de foot — visuel graphique de l'équipe type ─── */
+function FootballPitch({ team }) {
+  if (!team.length) return null;
+
+  const byPos = { ATQ: [], MIL: [], DEF: [] };
+  team.forEach(p => {
+    if (byPos[p.pos]) byPos[p.pos].push(p);
+    else byPos.MIL.push(p);
+  });
+  Object.values(byPos).forEach(arr => arr.sort((a, b) => b.score - a.score));
+
+  // Positions horizontales (%) selon le nombre de joueurs sur la ligne
+  function xPositions(count) {
+    if (count <= 1) return [50];
+    if (count === 2) return [28, 72];
+    if (count === 3) return [18, 50, 82];
+    return Array.from({ length: count }, (_, i) => (100 / (count + 1)) * (i + 1));
+  }
+
+  // ATQ proche du but adverse (haut), DEF proche de son propre but (bas)
+  const rows = [
+    { pos: 'ATQ', y: 16, players: byPos.ATQ },
+    { pos: 'MIL', y: 50, players: byPos.MIL },
+    { pos: 'DEF', y: 82, players: byPos.DEF },
+  ];
+
+  return (
+    <div style={{
+      position: 'relative',
+      width: '100%',
+      aspectRatio: '3 / 4',
+      borderRadius: 14,
+      overflow: 'hidden',
+      background: 'repeating-linear-gradient(0deg, #1e7a34 0, #1e7a34 40px, #23893a 40px, #23893a 80px)',
+      border: '2px solid var(--border)',
+      marginBottom: 14,
+      boxShadow: 'inset 0 0 40px rgba(0,0,0,0.35)',
+    }}>
+      {/* Tracé du terrain */}
+      <svg viewBox="0 0 300 400" preserveAspectRatio="none" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}>
+        <rect x="8" y="8" width="284" height="384" fill="none" stroke="rgba(255,255,255,0.55)" strokeWidth="2" />
+        <line x1="8" y1="200" x2="292" y2="200" stroke="rgba(255,255,255,0.55)" strokeWidth="2" />
+        <circle cx="150" cy="200" r="42" fill="none" stroke="rgba(255,255,255,0.55)" strokeWidth="2" />
+        <circle cx="150" cy="200" r="3" fill="rgba(255,255,255,0.55)" />
+        {/* Surface adverse (haut) */}
+        <rect x="80" y="8" width="140" height="55" fill="none" stroke="rgba(255,255,255,0.55)" strokeWidth="2" />
+        <rect x="112" y="8" width="76" height="24" fill="none" stroke="rgba(255,255,255,0.55)" strokeWidth="2" />
+        <path d="M 118 63 A 42 42 0 0 0 182 63" fill="none" stroke="rgba(255,255,255,0.55)" strokeWidth="2" />
+        {/* Surface propre (bas) */}
+        <rect x="80" y="337" width="140" height="55" fill="none" stroke="rgba(255,255,255,0.55)" strokeWidth="2" />
+        <rect x="112" y="368" width="76" height="24" fill="none" stroke="rgba(255,255,255,0.55)" strokeWidth="2" />
+        <path d="M 118 337 A 42 42 0 0 1 182 337" fill="none" stroke="rgba(255,255,255,0.55)" strokeWidth="2" />
+      </svg>
+
+      {/* Joueurs positionnés */}
+      {rows.map(row => {
+        const xs = xPositions(row.players.length);
+        return row.players.map((p, i) => (
+          <div
+            key={p.id}
+            style={{
+              position: 'absolute',
+              left: `${xs[i]}%`,
+              top: `${row.y}%`,
+              transform: 'translate(-50%, -50%)',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 3,
+              zIndex: 2,
+            }}
+          >
+            <div style={{
+              width: 44, height: 44, borderRadius: '50%',
+              background: 'var(--bg2)',
+              border: `2.5px solid ${posColor(p.pos)}`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontWeight: 800, fontSize: '0.78rem', color: 'var(--fg)',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.45)',
+            }}>
+              {initials(p.name)}
+            </div>
+            <div style={{
+              fontSize: '0.62rem', fontWeight: 700, color: '#fff',
+              background: 'rgba(0,0,0,0.6)', borderRadius: 5, padding: '1px 6px',
+              whiteSpace: 'nowrap', maxWidth: 82, overflow: 'hidden', textOverflow: 'ellipsis',
+            }}>
+              {p.name}
+            </div>
+            <div style={{
+              fontSize: '0.6rem', fontWeight: 800, color: posColor(p.pos),
+              background: 'rgba(0,0,0,0.6)', borderRadius: 5, padding: '0 5px',
+            }}>
+              {p.score} pts
+            </div>
+          </div>
+        ));
+      })}
+    </div>
+  );
+}
+
+/* ─── Équipe type — les 6 meilleurs, en formation 2 DEF / 2 MIL / 2 ATQ ─── */
+function TeamOfTypeCard({ team, title, subtitle }) {
+  if (!team.length) {
+    return (
+      <div className="empty">
+        <div className="empty-icon">🌟</div>
+        <p>Pas assez de données pour former une équipe.</p>
+      </div>
+    );
+  }
+  const order = { ATQ: 0, MIL: 1, DEF: 2 };
+  const sorted = [...team].sort((a, b) => (order[a.pos] ?? 3) - (order[b.pos] ?? 3) || b.score - a.score);
+  return (
+    <div className="card">
+      <div className="card-title">{title}</div>
+      {subtitle && <div style={{ fontSize: '0.72rem', color: 'var(--muted)', marginBottom: 10 }}>{subtitle}</div>}
+      <FootballPitch team={sorted} />
+      {sorted.map((p, i) => (
+        <div key={p.id} className="lb-row">
+          <div className={`lb-rank ${rankCls(i)}`}>{i===0?'👑':i===1?'🥈':i===2?'🥉':'⭐'}</div>
+          <div className={`avatar ${avatarCls(p.pos)}`} style={{ width: 40, height: 40, fontSize: '0.85rem' }}>
+            {initials(p.name)}
+          </div>
+          <div className="lb-info">
+            <div className="lb-name">{p.name}<span className={`pos-tag ${posCls(p.pos)}`}>{p.pos}</span></div>
+          </div>
+          <div className="avg-indicator">
+            <div className="avg-val" style={{ color: 'var(--neon)' }}>{p.score}</div>
+            <div className="avg-label">pts</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TeamOfWeek({ sessionStats }) {
+  const dates = [...new Set(sessionStats.map(s => s.matches?.date).filter(Boolean))].sort((a, b) => b.localeCompare(a));
+  const [selectedDate, setSelectedDate] = useState('');
+
+  useEffect(() => {
+    if (dates.length && !selectedDate) setSelectedDate(dates[0]);
+  }, [dates]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!dates.length) return <div className="empty"><div className="empty-icon">📅</div><p>Aucune stat enregistrée</p></div>;
+
+  const statsForDate = sessionStats.filter(s => s.matches?.date === selectedDate);
+  const byPlayer = {};
+  statsForDate.forEach(s => {
+    const pid = s.player_id;
+    if (!byPlayer[pid]) {
+      byPlayer[pid] = { id: pid, name: s.players?.name || '?', pos: s.players?.pos || 'MIL', score: 0 };
+    }
+    byPlayer[pid].score += calcScore(byPlayer[pid].pos, s);
+  });
+  const playersScored = Object.values(byPlayer).map(p => ({ ...p, score: Math.round(p.score * 10) / 10 }));
+  const team = pickTeamOfPeriod(playersScored);
+
+  return (
+    <>
+      <div className="card" style={{ padding: '10px 14px' }}>
+        <label style={{ fontSize: '0.72rem', color: 'var(--muted)', fontWeight: 700 }}>Choisir une semaine</label>
+        <select value={selectedDate} onChange={e => setSelectedDate(e.target.value)} style={{ marginTop: 6 }}>
+          {dates.map(d => <option key={d} value={d}>{fmtDate(d)}</option>)}
+        </select>
+      </div>
+      <TeamOfTypeCard
+        team={team}
+        title={`🌟 Équipe type — ${fmtDate(selectedDate)}`}
+        subtitle="Formation 3 DEF · 2 MIL · 1 ATQ — meilleurs scores du jour"
+      />
+    </>
+  );
+}
+
+function TeamOfSeason({ players, allStats }) {
+  const [minMatches, setMinMatches] = useState(3);
+  const minM = Math.max(1, parseInt(minMatches) || 1);
+
+  const scored = players
+    .map(p => ({ ...p, ss: playerSeasonStats(allStats, p.id, p.pos) }))
+    .filter(p => p.ss.matchCount >= minM)
+    .map(p => ({ id: p.id, name: p.name, pos: p.pos, score: p.ss.avgScore }));
+  const team = pickTeamOfPeriod(scored);
+
+  return (
+    <>
+      <div className="card" style={{ padding: '10px 14px' }}>
+        <label style={{ fontSize: '0.72rem', color: 'var(--muted)', fontWeight: 700 }}>
+          Matchs minimum joués
+        </label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
+          <button className="counter-btn" onClick={() => setMinMatches(v => Math.max(1, (parseInt(v) || 1) - 1))}>−</button>
+          <input
+            type="number" min={1} value={minMatches}
+            onChange={e => setMinMatches(e.target.value)}
+            style={{
+              width: 60, textAlign: 'center', fontWeight: 800, fontSize: '1rem',
+              background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 8,
+              padding: '6px 0', color: 'var(--fg)',
+            }}
+          />
+          <button className="counter-btn" onClick={() => setMinMatches(v => (parseInt(v) || 1) + 1)}>+</button>
+          <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>
+            {scored.length} joueur{scored.length > 1 ? 's' : ''} éligible{scored.length > 1 ? 's' : ''}
+          </span>
+        </div>
+      </div>
+      <TeamOfTypeCard
+        team={team}
+        title="🏆 Équipe type de la saison"
+        subtitle={`Formation 3 DEF · 2 MIL · 1 ATQ — meilleure moyenne/match (min. ${minM} match${minM > 1 ? 's' : ''} joué${minM > 1 ? 's' : ''})`}
+      />
+    </>
+  );
+}
+
+function TeamOfTheTypeSection({ sessionStats, players, allStats }) {
+  const [mode, setMode] = useState('week');
+  return (
+    <>
+      <div style={{ display: 'flex', gap: 8, margin: '8px 0' }}>
+        <button className={`btn btn-sm ${mode==='week' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setMode('week')} style={{ flex: 1 }}>
+          📅 Semaine
+        </button>
+        <button className={`btn btn-sm ${mode==='season' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setMode('season')} style={{ flex: 1 }}>
+          🏆 Saison
+        </button>
+      </div>
+      {mode === 'week'
+        ? <TeamOfWeek sessionStats={sessionStats} />
+        : <TeamOfSeason players={players} allStats={allStats} />}
+    </>
+  );
+}
+
 /* ══════════════ PAGE PRINCIPALE ══════════════ */
 export default function Classement() {
   const { isAdmin }                 = useAuth();
@@ -385,6 +720,7 @@ export default function Classement() {
   const [players, setPlayers]       = useState([]);
   const [allStats, setAllStats]     = useState([]);
   const [sessionStats, setSessionStats] = useState([]);
+  const [matches, setMatches]       = useState([]);
   const [loading, setLoading]       = useState(true);
   const [expanded, setExpanded]     = useState({});   // { [pid]: bool }
   const [bonusModal, setBonusModal] = useState(null); // player | null
@@ -392,13 +728,15 @@ export default function Classement() {
   useEffect(() => { load(); }, []);
 
   async function load() {
-    const [{ data: pls }, { data: stats }] = await Promise.all([
+    const [{ data: pls }, { data: stats }, { data: mts }] = await Promise.all([
       supabase.from('players').select('*'),
       supabase.from('match_stats').select('*, players(name,pos), matches(date)'),
+      supabase.from('matches').select('*, match_players(*, players(name,pos))'),
     ]);
     setPlayers(pls || []);
     setAllStats(stats || []);
     setSessionStats(stats || []);
+    setMatches(mts || []);
     setLoading(false);
   }
 
@@ -410,9 +748,9 @@ export default function Classement() {
     setPlayers(prev => prev.map(p => p.id === pid ? { ...p, ...update } : p));
   }
 
-  const isSpecial = ['buts', 'passd', 'def', 'winratio', 'session'].includes(tab);
+  const isSpecial = ['buts', 'passd', 'cleansheets', 'winratio', 'duo', 'teamtype', 'session'].includes(tab);
 
-  const posFilterMap = { global: null, att: 'ATQ', mid: 'MIL' };
+  const posFilterMap = { global: null, att: 'ATQ', mid: 'MIL', def: 'DEF' };
   let filtered = [...players];
   if (!isSpecial && posFilterMap[tab]) filtered = filtered.filter(p => p.pos === posFilterMap[tab]);
 
@@ -437,14 +775,14 @@ export default function Classement() {
 
       {/* Tabs ligne 1 */}
       <div className="tab-row">
-        {[['global','🌍 Général'],['att','⚡ ATQ'],['mid','🔄 MIL']].map(([k,l]) => (
+        {[['global','🌍 Général'],['att','⚡ ATQ'],['mid','🔄 MIL'],['def','🛡️ DEF']].map(([k,l]) => (
           <button key={k} className={`tab${tab===k?' active':''}`} onClick={() => setTab(k)}>{l}</button>
         ))}
       </div>
 
       {/* Tabs ligne 2 — classements spéciaux */}
       <div className="tab-row" style={{ marginTop:4 }}>
-        {[['buts','⚽ Buteurs'],['passd','🎯 Passeurs'],['def','🛡️ Défenseurs'],['winratio','📊 Ratio V'],['session','📅 Par date']].map(([k,l]) => (
+        {[['buts','⚽ Buteurs'],['passd','🎯 Passeurs'],['cleansheets','🧤 Clean Sheets'],['winratio','📊 Ratio V'],['duo','🤝 Duos'],['teamtype','🌟 Équipe type'],['session','📅 Par date']].map(([k,l]) => (
           <button key={k} className={`tab${tab===k?' active':''}`} onClick={() => setTab(k)}>{l}</button>
         ))}
       </div>
@@ -472,11 +810,11 @@ export default function Classement() {
           <RankingPassD players={players} allStats={allStats} />
         </>
 
-      ) : tab === 'def' ? (
+      ) : tab === 'cleansheets' ? (
         <>
           <div className="card" style={{ padding:'10px 14px' }}>
             <div style={{ fontSize:'0.72rem', color:'var(--muted2)', display:'flex', alignItems:'center', gap:6 }}>
-              <span>🛡️</span><span>Classement des <strong style={{ color:'var(--def)' }}>défenseurs</strong> par clean sheets.</span>
+              <span>🧤</span><span>Classement des <strong style={{ color:'var(--def)' }}>défenseurs</strong> par clean sheets.</span>
             </div>
           </div>
           <RankingDef players={players} allStats={allStats} />
@@ -490,6 +828,26 @@ export default function Classement() {
             </div>
           </div>
           <RankingWinRatio players={players} allStats={allStats} />
+        </>
+
+      ) : tab === 'duo' ? (
+        <>
+          <div className="card" style={{ padding:'10px 14px' }}>
+            <div style={{ fontSize:'0.72rem', color:'var(--muted2)', display:'flex', alignItems:'center', gap:6 }}>
+              <span>🤝</span><span>Les paires de joueurs qui gagnent — ou perdent — le plus souvent <strong style={{ color:'var(--neon)' }}>ensemble</strong> (victoire = 3 pts, nul = 1 pt, sur le total de points possibles). Utile pour équilibrer le tirage dans Équipes.</span>
+            </div>
+          </div>
+          <RankingDuos matches={matches} />
+        </>
+
+      ) : tab === 'teamtype' ? (
+        <>
+          <div className="card" style={{ padding:'10px 14px' }}>
+            <div style={{ fontSize:'0.72rem', color:'var(--muted2)', display:'flex', alignItems:'center', gap:6 }}>
+              <span>🌟</span><span>L'<strong style={{ color:'var(--neon)' }}>équipe type</strong> — les 6 meilleurs, semaine par semaine ou sur la saison entière.</span>
+            </div>
+          </div>
+          <TeamOfTheTypeSection sessionStats={sessionStats} players={players} allStats={allStats} />
         </>
 
       ) : tab === 'session' ? (
@@ -607,6 +965,15 @@ export default function Classement() {
                     {isOpen && (
                       <div style={{ padding:'4px 12px 14px', borderTop:'1px solid var(--border)' }}>
                         <ScoreBreakdown pos={p.pos} ss={p.ss} bonusPts={p.bonus_pts} />
+
+                        <Link
+                          href={`/joueur/${p.id}`}
+                          onClick={e => e.stopPropagation()}
+                          className="btn btn-ghost btn-sm"
+                          style={{ marginTop: 8, width: '100%', display: 'block', textAlign: 'center', textDecoration: 'none', boxSizing: 'border-box' }}
+                        >
+                          📊 Voir la fiche complète →
+                        </Link>
 
                         {isAdmin && (
                           <button
