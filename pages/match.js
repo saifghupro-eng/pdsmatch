@@ -1,5 +1,6 @@
 // pages/match.js
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/router';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { calcScore, getFunComment, RATING_SCALE } from '../lib/score';
@@ -17,10 +18,12 @@ const COMBOS = [['A','B'], ['A','C'], ['B','C'], ['A','B','C']];
 
 export default function MatchPage() {
   const { isAdmin } = useAuth();
+  const router = useRouter();
   const [tab, setTab]           = useState('list');
   const [players, setPlayers]   = useState([]);
   const [sessions, setSessions] = useState([]);
   const [matches, setMatches]   = useState([]);
+  const [activeSeasonId, setActiveSeasonId] = useState(null);
   const [loading, setLoading]   = useState(true);
 
   // ── Création ──
@@ -48,16 +51,18 @@ export default function MatchPage() {
 
   async function loadAll() {
     setLoading(true);
-    const [{ data: pls }, { data: mts }, { data: sess }] = await Promise.all([
+    const [{ data: pls }, { data: mts }, { data: sess }, { data: activeSeason }] = await Promise.all([
       supabase.from('players').select('*').order('name'),
       supabase.from('matches')
         .select('*, match_players(*, players(*)), match_stats(*)')
         .order('date', { ascending: false }),
       supabase.from('sessions').select('*').order('created_at', { ascending: false }).limit(10),
+      supabase.from('seasons').select('id').eq('is_active', true).maybeSingle(),
     ]);
     setPlayers(pls || []);
     setMatches(mts || []);
     setSessions(sess || []);
+    setActiveSeasonId(activeSeason?.id || null);
     setLoading(false);
   }
 
@@ -104,9 +109,13 @@ export default function MatchPage() {
     const { data: match, error } = await supabase.from('matches').insert({
       name: matchName.trim() || `Match du ${new Date().toLocaleDateString('fr-FR')}`,
       date, lieu: lieu.trim() || null,
+      season_id: activeSeasonId,
       ...scorePayload,
     }).select().single();
     if (error) { toast('❌ Erreur création match'); return; }
+    if (!activeSeasonId) {
+      toast('⚠️ Match créé sans saison active — pense à en créer une dans Admin');
+    }
 
     const { error: mpErr } = await supabase.from('match_players').insert(
       mpRows.map(r => ({ match_id: match.id, player_id: r.player_id, team: r.team }))
@@ -117,14 +126,7 @@ export default function MatchPage() {
     setMatchName(''); setLieu(''); setScoreA(0); setScoreB(0); setScoreC(0);
     setSelectedSession(''); setCustomPlayers([]); setPlayerTeams({});
     await loadAll();
-    setStatsMatchId(match.id);
-    setTab('stats');
-    setTimeout(async () => {
-      const { data: m } = await supabase.from('matches')
-        .select('*, match_players(*, players(*)), match_stats(*)')
-        .eq('id', match.id).single();
-      if (m) initStatsForm(m);
-    }, 400);
+    router.push(`/notation?matchId=${match.id}`);
   }
 
   function initStatsForm(m) {
@@ -299,7 +301,7 @@ export default function MatchPage() {
                       ))}
                     </div>
                     <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', marginTop: 6 }}>
-                      <button className="btn btn-ghost btn-xs" onClick={() => { selectMatchForStats(m.id); setTab('stats'); }}>📊</button>
+                      <button className="btn btn-ghost btn-xs" onClick={() => router.push(`/notation?matchId=${m.id}`)}>📊</button>
                       {isAdmin && <button className="btn btn-danger btn-xs" onClick={() => deleteMatch(m.id)}>🗑️</button>}
                     </div>
                   </div>
@@ -500,9 +502,7 @@ export default function MatchPage() {
           <div className="card">
             <div className="card-title">Sélectionner un match</div>
             <select value={statsMatchId} onChange={e => {
-              setStatsMatchId(e.target.value);
-              const m = matches.find(x => x.id === e.target.value);
-              if (m) initStatsForm(m);
+              if (e.target.value) router.push(`/notation?matchId=${e.target.value}`);
             }}>
               <option value="">— Choisir un match —</option>
               {matches.map(m => {
@@ -515,6 +515,9 @@ export default function MatchPage() {
                 );
               })}
             </select>
+            <p style={{ fontSize: '0.68rem', color: 'var(--muted)', marginTop: 8 }}>
+              🎬 Choisir un match ouvre directement le mode notation.
+            </p>
           </div>
 
           {statsMatchId && matchPlayers.length > 0 && (

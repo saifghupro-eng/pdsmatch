@@ -15,6 +15,8 @@
   --accent-light: #e8d5aa;
   --blue:      #6b9fff;
   --blue-dim:  rgba(107,159,255,0.10);
+  --blue-dim2: rgba(107,159,255,0.18);
+  --blue-light: #93b7ff;
   --red:       #e05555;
   --red-dim:   rgba(224,85,85,0.10);
   --green:     #5ab98a;
@@ -130,8 +132,20 @@ body {
 }
 .nav-link .nav-icon { font-size: 1rem; line-height: 1; }
 .nav-link:hover, .nav-link.active {
-  color: var(--accent);
-  background: var(--accent-dim);
+  color: var(--blue);
+  background: var(--blue-dim);
+}
+.nav-link { position: relative; }
+.nav-link.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 16px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--blue);
 }
 
 /* HERO */
@@ -201,7 +215,7 @@ body {
   transition: border-color 0.2s, background 0.2s;
   cursor: pointer;
 }
-.quick-card:hover { background: var(--bg3); border-color: var(--border2); }
+.quick-card:hover { background: var(--bg3); border-color: var(--blue); }
 .quick-card:active { transform: scale(0.97); }
 .quick-card-icon { font-size: 1.3rem; color: var(--muted2); }
 .quick-card-label {
@@ -331,8 +345,8 @@ body {
   background: transparent;
 }
 .tab.active {
-  background: var(--accent);
-  color: var(--bg);
+  background: var(--blue);
+  color: #08101f;
 }
 
 /* BUTTONS */
@@ -353,11 +367,11 @@ body {
   white-space: nowrap;
 }
 .btn-primary {
-  background: var(--accent);
-  color: var(--bg);
-  border-color: var(--accent);
+  background: var(--blue);
+  color: #08101f;
+  border-color: var(--blue);
 }
-.btn-primary:hover { background: var(--accent-light); border-color: var(--accent-light); }
+.btn-primary:hover { background: var(--blue-light); border-color: var(--blue-light); }
 .btn-ghost {
   background: transparent;
   color: var(--muted2);
@@ -406,11 +420,11 @@ input, select, textarea {
   outline: none;
 }
 input:focus, select:focus, textarea:focus {
-  border-color: var(--accent);
+  border-color: var(--blue);
 }
 input[type=number] { appearance: textfield; }
 input[type=range] {
-  accent-color: var(--accent);
+  accent-color: var(--blue);
   height: 4px;
   cursor: pointer;
   padding: 0;
@@ -439,7 +453,7 @@ input[type=range] {
   transition: all 0.15s;
 }
 .player-card:hover { border-color: var(--border2); }
-.player-card.selected { border-color: var(--accent); background: var(--accent-dim); }
+.player-card.selected { border-color: var(--blue); background: var(--blue-dim); }
 .player-name { font-size: 0.75rem; font-weight: 600; color: var(--text-soft); }
 
 /* TEAM DISPLAY */
@@ -757,7 +771,7 @@ input[type=range] {
   margin-bottom: 8px;
   transition: border-color 0.15s;
 }
-.session-card.selected { border-color: var(--accent); }
+.session-card.selected { border-color: var(--blue); }
 .session-card:last-child { margin-bottom: 0; }
 
 /* AUTH */
@@ -864,3 +878,148 @@ input[type=range] {
   color: var(--accent);
   min-width: 38px;
 }
+/* ═══════════════════════════════════════════════════════════
+   REFONTE ACCUEIL — saison, podium, stats, journée, actions
+   ═══════════════════════════════════════════════════════════ */
+
+/* Layout desktop 2 colonnes (empilé en mobile par défaut) */
+.home-grid { display: flex; flex-direction: column; gap: 12px; }
+@media (min-width: 900px) {
+  .page.page-wide { max-width: 1240px; }
+  .home-grid { display: grid; grid-template-columns: 2.1fr 1fr; gap: 16px; align-items: start; }
+  .home-main, .home-side { display: flex; flex-direction: column; gap: 12px; }
+}
+
+/* SEASON BANNER */
+.season-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: linear-gradient(135deg, var(--surface) 0%, var(--bg3) 100%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+}
+.season-nav-btn {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+  color: var(--muted2);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+  font-size: 0.85rem;
+}
+.season-nav-btn:hover:not(:disabled) { border-color: var(--blue); color: var(--blue); }
+.season-nav-btn:disabled { opacity: 0.28; cursor: default; }
+.season-banner-info { flex: 1; min-width: 0; }
+.season-banner-tag {
+  font-size: 0.6rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 1.5px; color: var(--blue);
+  display: flex; align-items: center; gap: 5px;
+}
+.season-banner-tag .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
+.season-banner-name {
+  font-family: var(--font-head); font-weight: 400; font-size: 1.3rem; color: var(--accent);
+  line-height: 1.25; margin-top: 2px; letter-spacing: 0.5px;
+}
+.season-banner-dates { font-size: 0.68rem; color: var(--muted2); margin-top: 2px; }
+
+/* MINI STAT CARDS */
+.mini-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.mini-stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 6px;
+  text-align: center;
+  transition: border-color 0.15s;
+}
+.mini-stat-card:hover { border-color: var(--border2); }
+.mini-stat-val { font-family: var(--font-head); font-weight: 400; font-size: 1.5rem; color: var(--text); line-height: 1; }
+.mini-stat-label { font-size: 0.56rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; font-weight: 500; }
+@media (max-width: 360px) { .mini-stats { grid-template-columns: repeat(2, 1fr); } }
+
+/* PODIUM */
+.podium { display: grid; grid-template-columns: 1fr 1.12fr 1fr; gap: 8px; align-items: end; }
+.podium-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 18px 8px 14px;
+  text-align: center;
+  position: relative;
+  text-decoration: none;
+  color: var(--text);
+  display: block;
+  transition: transform 0.2s, border-color 0.2s;
+}
+.podium-card:hover { transform: translateY(-3px); border-color: var(--border2); }
+.podium-card.first {
+  border-color: rgba(201,169,110,0.35);
+  background: linear-gradient(180deg, var(--accent-dim), var(--surface) 65%);
+  padding-top: 26px;
+}
+.podium-crown { position: absolute; top: -13px; left: 50%; transform: translateX(-50%); font-size: 1.2rem; }
+.podium-rank-badge {
+  position: absolute; top: 8px; left: 8px;
+  width: 19px; height: 19px; border-radius: 50%;
+  background: var(--bg3); border: 1px solid var(--border2);
+  font-size: 0.62rem; font-weight: 700; color: var(--muted2);
+  display: flex; align-items: center; justify-content: center;
+}
+.podium-avatar { margin: 0 auto; }
+.podium-name { font-weight: 700; font-size: 0.82rem; margin-top: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.podium-score { font-family: var(--font-head); font-weight: 400; font-size: 1.4rem; color: var(--accent); margin-top: 2px; line-height: 1; }
+.podium-card.first .podium-score { font-size: 1.85rem; }
+.podium-meta { display: flex; justify-content: center; gap: 4px; margin-top: 8px; flex-wrap: wrap; }
+
+/* TOP STAT LIST (buteurs, passeurs, mvp) */
+.top-stat-list { display: flex; flex-direction: column; }
+.top-stat-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 0; border-bottom: 1px solid var(--border);
+  text-decoration: none; color: var(--text);
+}
+.top-stat-row:last-child { border-bottom: none; }
+.top-stat-rank { width: 15px; font-size: 0.7rem; color: var(--muted); font-weight: 700; flex-shrink: 0; }
+.top-stat-name { flex: 1; font-size: 0.79rem; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.top-stat-val { font-family: var(--font-head); font-weight: 400; font-size: 1rem; color: var(--blue); flex-shrink: 0; }
+
+/* MATCHDAY ROW (dernière journée) */
+.mday-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 11px 0; border-bottom: 1px solid var(--border);
+}
+.mday-row:last-child { border-bottom: none; }
+.mday-label { font-size: 0.66rem; color: var(--muted); width: 52px; flex-shrink: 0; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+.mday-mid { flex: 1; min-width: 0; }
+.mday-score-line { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 0.98rem; flex-wrap: wrap; }
+.mday-teamname { font-size: 0.66rem; color: var(--muted2); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+.mday-mvp { display: flex; align-items: center; gap: 5px; margin-top: 4px; font-size: 0.68rem; color: var(--accent); }
+
+/* ACTION LIST (actions rapides) */
+.action-list { display: flex; flex-direction: column; gap: 6px; }
+.action-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 11px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg3);
+  text-decoration: none;
+  color: var(--text);
+  transition: all 0.15s;
+}
+.action-item:hover { border-color: var(--blue); background: var(--blue-dim); }
+.action-item:active { transform: scale(0.98); }
+.action-icon {
+  width: 32px; height: 32px; border-radius: 8px;
+  background: var(--blue-dim2); color: var(--blue);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.92rem; flex-shrink: 0;
+}
+.action-text { flex: 1; min-width: 0; }
+.action-title { font-size: 0.8rem; font-weight: 600; }
+.action-sub { font-size: 0.64rem; color: var(--muted); margin-top: 1px; }

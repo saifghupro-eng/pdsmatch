@@ -725,19 +725,48 @@ export default function Classement() {
   const [expanded, setExpanded]     = useState({});   // { [pid]: bool }
   const [bonusModal, setBonusModal] = useState(null); // player | null
 
-  useEffect(() => { load(); }, []);
+  // ── Saisons ──
+  const [seasons, setSeasons]                 = useState([]);
+  const [selectedSeasonId, setSelectedSeasonId] = useState(undefined); // undefined = pas encore chargé, null = "toutes saisons"
 
-  async function load() {
+  useEffect(() => { init(); }, []);
+
+  async function init() {
+    const { data: seasonsData } = await supabase.from('seasons').select('*').order('start_date', { ascending: false });
+    const list = seasonsData || [];
+    setSeasons(list);
+    const active = list.find(s => s.is_active) || list[0] || null;
+    const sid = active ? active.id : null;
+    setSelectedSeasonId(sid);
+    await load(sid);
+  }
+
+  async function load(seasonId) {
+    setLoading(true);
+    // Avec un id de saison : on filtre matches/match_stats sur cette saison.
+    // seasonId === null → pas de filtre, on prend l'historique complet (all-time).
+    let statsQuery   = supabase.from('match_stats').select('*, players(name,pos), matches!inner(date, season_id)');
+    let matchesQuery = supabase.from('matches').select('*, match_players(*, players(name,pos))');
+    if (seasonId) {
+      statsQuery   = statsQuery.eq('matches.season_id', seasonId);
+      matchesQuery = matchesQuery.eq('season_id', seasonId);
+    }
+
     const [{ data: pls }, { data: stats }, { data: mts }] = await Promise.all([
       supabase.from('players').select('*'),
-      supabase.from('match_stats').select('*, players(name,pos), matches(date)'),
-      supabase.from('matches').select('*, match_players(*, players(name,pos))'),
+      statsQuery,
+      matchesQuery,
     ]);
     setPlayers(pls || []);
     setAllStats(stats || []);
     setSessionStats(stats || []);
     setMatches(mts || []);
     setLoading(false);
+  }
+
+  function handleSeasonChange(seasonId) {
+    setSelectedSeasonId(seasonId);
+    load(seasonId);
   }
 
   function toggleExpanded(pid) {
@@ -772,6 +801,31 @@ export default function Classement() {
 
   return (
     <div className="page">
+
+      {/* Sélecteur de saison */}
+      {seasons.length > 0 && (
+        <div className="card" style={{ padding: '10px 14px' }}>
+          <label style={{ fontSize: '0.72rem', color: 'var(--muted)', fontWeight: 700 }}>Saison</label>
+          <select
+            value={selectedSeasonId ?? 'all'}
+            onChange={e => handleSeasonChange(e.target.value === 'all' ? null : e.target.value)}
+            style={{ marginTop: 6 }}
+          >
+            <option value="all">🗂️ Toutes les saisons (all-time)</option>
+            {seasons.map(s => (
+              <option key={s.id} value={s.id}>
+                {s.is_active ? '🟢 ' : ''}{s.name}
+                {s.is_active ? ' — en cours' : ` — ${fmtDate(s.start_date)} → ${s.end_date ? fmtDate(s.end_date) : '?'}`}
+              </option>
+            ))}
+          </select>
+          {selectedSeasonId === null && (
+            <div style={{ fontSize: '0.68rem', color: 'var(--muted)', marginTop: 6 }}>
+              📊 Cumul de toutes les saisons confondues.
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Tabs ligne 1 */}
       <div className="tab-row">
